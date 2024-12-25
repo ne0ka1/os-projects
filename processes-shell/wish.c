@@ -9,6 +9,7 @@
 #define BUFF_SIZE 256
 
 struct Shell;
+int parse_line(struct Shell *shell);
 int execute_builtin(struct Shell *shell);
 int search_path(char path[], struct Shell *shell);
 void execute_command(struct Shell *shell);
@@ -65,10 +66,7 @@ int main(int argc, char *argv[])
         }
 
         // populate shell.argc and shell.argv
-        // parse_line(line);
-        shell.argc = 1;
-        shell.argv[0] = "ls";
-        shell.argv[1] = NULL;
+        parse_line(&shell);
 
         if (execute_builtin(&shell) == -1){
             execute_command(&shell);
@@ -76,6 +74,22 @@ int main(int argc, char *argv[])
     }
     clean(&shell);
     exit(EXIT_SUCCESS);
+}
+
+// tokenizes line based on whitespace characters
+int parse_line(struct Shell *shell){
+    char *saveptr;
+    char *arg = strtok_r(shell->line, " \t\n", &saveptr);
+    int i = 0;
+
+    while (arg != NULL) {
+        shell->argv[i] = arg;
+        arg = strtok_r(NULL, " \t\n", &saveptr);
+        i++;
+    }
+
+    shell->argv[i] = NULL;
+    shell->argc = i;
 }
 
 // execute builtin commands: exit, cd, path
@@ -120,6 +134,7 @@ int search_path(char path[], struct Shell *shell) {
     }
 }
 
+// execute command in path
 void execute_command(struct Shell *shell) {
     char path[BUFF_SIZE];
     if (search_path(path, shell) == 0) {
