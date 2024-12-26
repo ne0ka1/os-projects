@@ -1,7 +1,8 @@
 #include <stdio.h>  // fopen, fclose, getline
 #include <stdlib.h> // exit
-#include <string.h>
-#include <unistd.h>
+#include <string.h> // strcep, strtok, strcmp
+#include <unistd.h> // fileno
+#include <sys/types.h> // size_t
 #include <sys/wait.h> // waitpid
 
 #define INTERACTIVE_MODE 1
@@ -9,9 +10,10 @@
 #define BUFF_SIZE 256
 
 struct Shell;
-int parse_line(struct Shell *shell);
+void parse_line(struct Shell *shell);
 int execute_builtin(struct Shell *shell);
 int search_path(char path[], struct Shell *shell);
+void redirect(struct Shell *shell);
 void execute_command(struct Shell *shell);
 void print_error();
 void clean(struct Shell *shell);
@@ -19,7 +21,8 @@ void clean(struct Shell *shell);
 // The Shell struct stores settings and current state of the shell
 struct Shell {
     int mode;               // the mode of shell (interactive or batch)
-    FILE* input;            // file pointer to the input stream, may be stdin or batch file
+    FILE* input;            // file pointer to the input stream
+    FILE* output;           // file pointer to the output stream
     char* line;             // current line read from pointer
     char* paths[BUFF_SIZE]; // arrays of path name
     int argc;               // argc of current command
@@ -32,11 +35,13 @@ int main(int argc, char *argv[])
     // initialize a shell
     struct Shell shell;
     shell.input = stdin;
+    // shell.output is reset for every command
     shell.line = NULL;
     shell.paths[0] = "/bin";
     shell.paths[1] = NULL;
 
     size_t linecap = 0;
+    ssize_t nread;
 
     // set input stream
     if (argc < 2){
@@ -57,29 +62,60 @@ int main(int argc, char *argv[])
             printf("wish > ");
         }
 
-        if (getline(&(shell.line), &linecap, shell.input) == -1){
-            print_error();
-        }
+        if (nread = (getline(&(shell.line), &linecap, shell.input) > 0)){
 
-        if (strcmp(shell.line, "\n") == 0) {
-            continue;
-        }
+            if (shell.line[nread - 1] == '\n'){
+                shell.line[nread - 1] == '\0';
+            }
+            if (shell.line[0] == '\n') {
+                continue;
+            } 
 
-        // populate shell.argc and shell.argv
-        parse_line(&shell);
+            parse_line(&shell);
 
-        if (execute_builtin(&shell) == -1){
-            execute_command(&shell);
+            if (execute_builtin(&shell) == -1){
+                execute_command(&shell);
+            }
+
+        } else if (feof(shell.input) != 0) {
+            clean(&shell);
+            exit(EXIT_SUCCESS);
         }
     }
-    clean(&shell);
-    exit(EXIT_SUCCESS);
 }
 
 // tokenizes line based on whitespace characters
-int parse_line(struct Shell *shell){
+void parse_line(struct Shell *shell){
+    shell->output = stdout;
+    char *command = strsep(&shell->line, ">");
+
+    if (shell->line != NULL){
+        // needs redirection
+        char *saveptr0;
+        char *out = strtok_r(shell->line, " \t\n", &saveptr0);
+        if (!out){
+            // no output file specified
+            print_error();
+            return;
+        }
+        char *more_out = strtok_r(NULL, " \t\n", &saveptr0);
+        if (more_out != NULL) {
+            // multiple output files
+            printf("multiple output files\n");
+            print_error();
+            return;
+        } else {
+            // set the output stream
+            if (shell->output = fopen(out, "w") == NULL){
+                print_error();
+                return;
+            }
+        }
+    }
+
+    // parse command
     char *saveptr;
-    char *arg = strtok_r(shell->line, " \t\n", &saveptr);
+    char *arg = strtok_r(command, " \t\n", &saveptr);
     int i = 0;
 
     while (arg != NULL) {
@@ -134,6 +170,31 @@ int search_path(char path[], struct Shell *shell) {
     }
 }
 
+// FIXME bugs in this function
+void redirect(struct Shell *shell) {
+    printf("starting redirection...\n");
+    int out_fileno;
+    if ((out_fileno = fileno (shell->output)) == -1) {
+        print_error();
+        return;
+    }
+    fprintf(stdout, "out_fileno: %d\n", out_fileno);
+    if (out_fileno != STDOUT_FILENO) {
+        if (dup2(out_fileno, STDOUT_FILENO) == -1) {
+            print_error();
+            return;
+        }
+        fprintf(stdout, "redirected stdout\n");
+        if (dup2(out_fileno, STDERR_FILENO) == -1) {
+            print_error();
+            return;
+        }
+        fprintf(stdout, "redirected stderr\n");
+        fclose(shell->output);
+    }
+    fprintf(stdout, "redirection completed\n");
+}
+
 // execute command in path
 void execute_command(struct Shell *shell) {
     char path[BUFF_SIZE];
@@ -143,13 +204,15 @@ void execute_command(struct Shell *shell) {
             print_error();
         } else if (pid == 0) {
             // child process
-            // redirect(out);
+            printf("child process\n");
+            redirect(shell);
             if (execv(path, shell->argv) == -1){
                 printf("execv = -1\n");
                 print_error();
             } 
         } else {
             // parent process
+            printf("parent process\n");
             waitpid(pid, NULL, 0);
         } 
     } else {
