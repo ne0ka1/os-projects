@@ -101,12 +101,11 @@ void parse_line(struct Shell *shell){
         char *more_out = strtok_r(NULL, " \t\n", &saveptr0);
         if (more_out != NULL) {
             // multiple output files
-            printf("multiple output files\n");
             print_error();
             return;
         } else {
             // set the output stream
-            if (shell->output = fopen(out, "w") == NULL){
+            if ((shell->output = fopen(out, "w")) == NULL){
                 print_error();
                 return;
             }
@@ -170,29 +169,24 @@ int search_path(char path[], struct Shell *shell) {
     }
 }
 
-// FIXME bugs in this function
+// redirect output to shell->output
 void redirect(struct Shell *shell) {
-    printf("starting redirection...\n");
     int out_fileno;
     if ((out_fileno = fileno (shell->output)) == -1) {
         print_error();
         return;
     }
-    fprintf(stdout, "out_fileno: %d\n", out_fileno);
     if (out_fileno != STDOUT_FILENO) {
         if (dup2(out_fileno, STDOUT_FILENO) == -1) {
             print_error();
             return;
         }
-        fprintf(stdout, "redirected stdout\n");
         if (dup2(out_fileno, STDERR_FILENO) == -1) {
             print_error();
             return;
         }
-        fprintf(stdout, "redirected stderr\n");
         fclose(shell->output);
     }
-    fprintf(stdout, "redirection completed\n");
 }
 
 // execute command in path
@@ -204,7 +198,6 @@ void execute_command(struct Shell *shell) {
             print_error();
         } else if (pid == 0) {
             // child process
-            printf("child process\n");
             redirect(shell);
             if (execv(path, shell->argv) == -1){
                 printf("execv = -1\n");
@@ -212,7 +205,6 @@ void execute_command(struct Shell *shell) {
             } 
         } else {
             // parent process
-            printf("parent process\n");
             waitpid(pid, NULL, 0);
         } 
     } else {
