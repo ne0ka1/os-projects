@@ -9,17 +9,17 @@
 #define BATCH_MODE 0
 #define BUFF_SIZE 256
 
-struct Shell;
-void parse_line(struct Shell *shell);
-int execute_builtin(struct Shell *shell);
-int search_path(char path[], struct Shell *shell);
-void redirect(struct Shell *shell);
-void execute_command(struct Shell *shell);
+typedef struct shell Shell;
+void parse_line(Shell *shell);
+int execute_builtin(Shell *shell);
+int search_path(char path[], Shell *shell);
+void redirect(Shell *shell);
+void execute_command(Shell *shell);
 void print_error();
-void clean(struct Shell *shell);
+void clean(Shell *shell);
 
 // The Shell struct stores settings and current state of the shell
-struct Shell {
+typedef struct shell {
     int mode;               // the mode of shell (interactive or batch)
     FILE* input;            // file pointer to the input stream
     FILE* output;           // file pointer to the output stream
@@ -27,13 +27,13 @@ struct Shell {
     char* paths[BUFF_SIZE]; // arrays of path name
     int argc;               // argc of current command
     char* argv[BUFF_SIZE];  // argv of current command
-};
+} Shell;
 
 
 int main(int argc, char *argv[])
 {
     // initialize a shell
-    struct Shell shell;
+    Shell shell;
     shell.input = stdin;
     // shell.output is reset for every command
     shell.line = NULL;
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
 }
 
 // tokenizes line based on whitespace characters
-void parse_line(struct Shell *shell){
+void parse_line(Shell *shell){
     shell->output = stdout;
     char *command = strsep(&shell->line, ">");
 
@@ -128,7 +128,7 @@ void parse_line(struct Shell *shell){
 }
 
 // execute builtin commands: exit, cd, path
-int execute_builtin(struct Shell *shell){
+int execute_builtin(Shell *shell){
     if (strcmp(shell->argv[0], "exit") == 0){
         if (shell->argc != 1){
             print_error();
@@ -157,7 +157,7 @@ int execute_builtin(struct Shell *shell){
 }
 
 // search executable file in paths, store the result in path
-int search_path(char path[], struct Shell *shell) {
+int search_path(char path[], Shell *shell) {
     int i = 0;
     while (shell->paths[i] != NULL){
         snprintf(path, BUFF_SIZE, "%s/%s", shell->paths[i], shell->argv[0]);
@@ -170,7 +170,7 @@ int search_path(char path[], struct Shell *shell) {
 }
 
 // redirect output to shell->output
-void redirect(struct Shell *shell) {
+void redirect(Shell *shell) {
     int out_fileno;
     if ((out_fileno = fileno (shell->output)) == -1) {
         print_error();
@@ -190,7 +190,7 @@ void redirect(struct Shell *shell) {
 }
 
 // execute command in path
-void execute_command(struct Shell *shell) {
+void execute_command(Shell *shell) {
     char path[BUFF_SIZE];
     if (search_path(path, shell) == 0) {
         pid_t pid = fork();
@@ -217,7 +217,7 @@ void print_error() {
     write(STDERR_FILENO, error_message, strlen(error_message)); 
 }
 
-void clean(struct Shell *shell) {
+void clean(Shell *shell) {
     free(shell->line);
     if (shell->mode == INTERACTIVE_MODE) {
         fclose(shell->input);
