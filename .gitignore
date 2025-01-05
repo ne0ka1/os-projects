@@ -1,0 +1,11 @@
+# test files
+tests/
+tests-out/
+
+# compiled executable
+wcat
+wgrep
+wzip
+wunzip
+wish
+pzip
