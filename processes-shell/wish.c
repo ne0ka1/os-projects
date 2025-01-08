@@ -62,10 +62,11 @@ int main(int argc, char *argv[])
             printf("wish > ");
         }
 
-        if (nread = (getline(&(shell.line), &linecap, shell.input) > 0)){
+        if ((nread = getline(&(shell.line), &linecap, shell.input)) > 0){
 
+            // remove newline character
             if (shell.line[nread - 1] == '\n'){
-                shell.line[nread - 1] == '\0';
+                shell.line[nread - 1] = '\0';
             }
             if (shell.line[0] == '\n') {
                 continue;
@@ -167,6 +168,7 @@ int search_path(char path[], Shell *shell) {
         }
         return -1;
     }
+    return 0;
 }
 
 // redirect output to shell->output
