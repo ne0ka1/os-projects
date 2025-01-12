@@ -29,11 +29,11 @@ typedef struct chunk {
 } Chunk;
 
 long long nchunks = 0;
-long long consume_ptr = 0;
+long long consumer_ptr = 0;
 sem_t mutex, empty, full;
 
 void *compress(void *arg);
-Output* make_output(int count, char character);
+void process_outputs(Chunk *chunks);
 
 int main(int argc, char *argv[])
 {
@@ -95,30 +95,30 @@ int main(int argc, char *argv[])
     }
 
     // produce chunks by memory mapping files
-    long long produce_ptr = 0;
+    long long producer_ptr = 0;
     for (int i = 0; i < argc - 1; i++) {
         long long pos = 0;
         while (pos < files[i].size) {
             sem_wait(&empty);
             sem_wait(&mutex);
 
-            chunks[produce_ptr].size = page_size;
+            chunks[producer_ptr].size = page_size;
             if (pos + page_size > files[i].size) {
-                chunks[produce_ptr].size = page_size;
+                chunks[producer_ptr].size = page_size;
             } else {
-                chunks[produce_ptr].size = files[i].size - pos;
+                chunks[producer_ptr].size = files[i].size - pos;
             }
 
-            char *addr = mmap(NULL, (size_t)chunks[produce_ptr].size, PROT_READ, MAP_PRIVATE, files[i].fd, pos);
+            char *addr = mmap(NULL, (size_t)chunks[producer_ptr].size, PROT_READ, MAP_PRIVATE, files[i].fd, pos);
             if (addr == MAP_FAILED) {
                 perror("mmap");
                 exit(EXIT_FAILURE);
             }
 
             pos += page_size;
-            chunks[produce_ptr].addr = addr;
-            chunks[produce_ptr].outputs = NULL;
-            produce_ptr = (produce_ptr + 1) % nchunks;
+            chunks[producer_ptr].addr = addr;
+            chunks[producer_ptr].outputs = NULL;
+            producer_ptr = (producer_ptr + 1) % nchunks;
 
             sem_post(&mutex);
             sem_post(&full);
@@ -126,14 +126,27 @@ int main(int argc, char *argv[])
         close(files[i].fd);
     }
 
+    // check compressions done
+    sem_wait(&empty);
+    sem_wait(&mutex);
+
     for (int i = 0; i < nthreads; i++) {
+        pthread_cancel(threads[i]);
         pthread_join(threads[i], NULL);
     }
 
+    // write outputs
+    void process_outputs(Chunk* chunks);
+    sem_post(&mutex);
 
+    // clean up 
     free(threads);
     free(files);
     free(chunks);
+    sem_destroy(&mutex);
+    sem_destroy(&full);
+    sem_destroy(&empty);
+
     exit(EXIT_SUCCESS);
 }
 
@@ -156,8 +169,8 @@ void *compress(void *arg) {
         sem_wait(&full);
         sem_wait(&mutex);
 
-        Chunk *curr_chunk = &chunks[consume_ptr];
-        consume_ptr = (consume_ptr + 1) & nchunks;
+        Chunk *curr_chunk = &chunks[consumer_ptr];
+        consumer_ptr = (consumer_ptr + 1) & nchunks;
 
         Output *head = NULL;
         Output *prev_output = NULL;
@@ -194,5 +207,87 @@ void *compress(void *arg) {
 
         sem_post(&mutex);
         sem_post(&empty);
+    }
+}
+
+void write_file(int count, char *character) {
+    fwrite(&count, sizeof(int), 1, stdout);
+    fwrite(character, sizeof(char), 1, stdout);
+}
+
+void process_first_output(Output *curr_output, int *last_count, char *last_character) {
+    if (curr_output->character == *last_character) {
+        // same as last character
+        write_file(curr_output->count + *last_count, &curr_output->character);
+    } else {
+        // not same as last characte
+        if (*last_count > 0) {
+            write_file(*last_count, last_character);
+        }
+        write_file(curr_output->count, &curr_output->character);
+    }
+}
+
+void process_last_output(Output *curr_output, int *last_count, char *last_character, Chunk *chunks, int index) {
+    if (curr_output != chunks[index].outputs) {
+        // not first output
+        if (index != nchunks - 1) {
+            // not last chunk, update last_count and last_character
+            *last_count = curr_output->count;
+            *last_character = curr_output->character;
+        } else {
+            // last chunk, just write
+            write_file(curr_output->count, &curr_output->character);
+        }
+    } else {
+        // first output
+        if (curr_output->character == *last_character) {
+            // same as last character
+            if (index != nchunks - 1) {
+                *last_count += curr_output->count;
+            } else {
+                write_file(curr_output->count + *last_count, &curr_output->character);
+            }    
+        } else {
+            // not same as last character
+            if (*last_count > 0) {
+                write_file(*last_count, last_character);
+            }
+            if (index != nchunks - 1) {
+                *last_character = curr_output->character;
+                *last_count = curr_output->count;
+            } else {
+                write_file(curr_output->count, &curr_output->character);
+            }
+        }
+    }
+}
+
+
+void process_outputs(Chunk *chunks){
+    int *last_count = 0;
+    char *last_character = '\0';
+
+    for (long long i = 0; i < nchunks; i++) {
+        Output *curr_output = chunks[i].outputs;
+
+        while (curr_output != NULL) {
+            if (curr_output == chunks[i].outputs && curr_output->next != NULL) {
+                process_first_output(curr_output, last_count, last_character);
+            } else if (curr_output->next == NULL) {
+                process_last_output(curr_output, last_count, last_character, chunks, i);
+            } else {
+                write_file(curr_output->count, &curr_output->character);
+            }
+
+            Output *temp = curr_output;
+            curr_output = curr_output->next;
+            free(temp);
+        }
+
+        if (munmap(chunks[i].addr, (size_t)chunks[i].size) != 0) {
+            perror("mumnap");
+            exit(EXIT_FAILURE);
+        }
     }
 }
