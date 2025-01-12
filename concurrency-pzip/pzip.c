@@ -45,6 +45,7 @@ int main(int argc, char *argv[])
     // allocate threads and files
     long page_size = sysconf(_SC_PAGE_SIZE);
     int nthreads = sysconf(_SC_NPROCESSORS_ONLN);
+    fprintf(stderr, "number of threads is %d\n", nthreads);
     pthread_t *threads = malloc(sizeof(pthread_t) * nthreads);
     if (threads == NULL) {
         perror("malloc");
@@ -77,6 +78,8 @@ int main(int argc, char *argv[])
         nchunks += (st.st_size / page_size + 1);
     }
 
+    fprintf(stderr, "number of chunks is %lld\n", nchunks);
+
     // initialize chunks
     Chunk *chunks = malloc(sizeof(Chunk) * nchunks);
     if (chunks == NULL) {
@@ -94,6 +97,8 @@ int main(int argc, char *argv[])
         pthread_create(&threads[i], NULL, compress, chunks);
     }
 
+    /* fprintf(stderr, "pthreads created\n"); */
+
     // produce chunks by memory mapping files
     long long producer_ptr = 0;
     for (int i = 0; i < argc - 1; i++) {
@@ -102,11 +107,11 @@ int main(int argc, char *argv[])
             sem_wait(&empty);
             sem_wait(&mutex);
 
-            chunks[producer_ptr].size = page_size;
+            fprintf(stderr, "starting producing chunk %lld\n", producer_ptr);
             if (pos + page_size > files[i].size) {
-                chunks[producer_ptr].size = page_size;
-            } else {
                 chunks[producer_ptr].size = files[i].size - pos;
+            } else {
+                chunks[producer_ptr].size = page_size;
             }
 
             char *addr = mmap(NULL, (size_t)chunks[producer_ptr].size, PROT_READ, MAP_PRIVATE, files[i].fd, pos);
@@ -120,6 +125,7 @@ int main(int argc, char *argv[])
             chunks[producer_ptr].outputs = NULL;
             producer_ptr = (producer_ptr + 1) % nchunks;
 
+            /* fprintf(stderr, "finished producing a chunk\n"); */
             sem_post(&mutex);
             sem_post(&full);
         }
@@ -130,13 +136,15 @@ int main(int argc, char *argv[])
     sem_wait(&empty);
     sem_wait(&mutex);
 
+    // wait and kill threads
     for (int i = 0; i < nthreads; i++) {
         pthread_cancel(threads[i]);
         pthread_join(threads[i], NULL);
     }
 
+    /* fprintf(stderr, "pthreads killed\n"); */
     // write outputs
-    void process_outputs(Chunk* chunks);
+    process_outputs(chunks);
     sem_post(&mutex);
 
     // clean up 
@@ -151,7 +159,7 @@ int main(int argc, char *argv[])
 }
 
 Output* make_output(int count, char character) {
-    Output *output = malloc(sizeof(output));
+    Output *output = malloc(sizeof(Output));
     if (output == NULL) {
         perror("malloc output");
         exit(EXIT_FAILURE);
@@ -169,8 +177,9 @@ void *compress(void *arg) {
         sem_wait(&full);
         sem_wait(&mutex);
 
+        fprintf(stderr, "starting compressing chunk %lld\n", consumer_ptr);
         Chunk *curr_chunk = &chunks[consumer_ptr];
-        consumer_ptr = (consumer_ptr + 1) & nchunks;
+        consumer_ptr = (consumer_ptr + 1) % nchunks;
 
         Output *head = NULL;
         Output *prev_output = NULL;
@@ -216,6 +225,7 @@ void write_file(int count, char *character) {
 }
 
 void process_first_output(Output *curr_output, int *last_count, char *last_character) {
+    /* fprintf(stderr, "current output's count is %d and character is %c\n", curr_output->count, curr_output->character); */
     if (curr_output->character == *last_character) {
         // same as last character
         write_file(curr_output->count + *last_count, &curr_output->character);
@@ -265,17 +275,19 @@ void process_last_output(Output *curr_output, int *last_count, char *last_charac
 
 
 void process_outputs(Chunk *chunks){
-    int *last_count = 0;
-    char *last_character = '\0';
+    int last_count = 0;
+    char last_character = '\0';
 
+    /* fprintf(stderr, "Starting processing outputs\n"); */
     for (long long i = 0; i < nchunks; i++) {
         Output *curr_output = chunks[i].outputs;
+        /* fprintf(stderr, "The address of chunks[%lld].outputs is %p\n", i, curr_output); */
 
         while (curr_output != NULL) {
             if (curr_output == chunks[i].outputs && curr_output->next != NULL) {
-                process_first_output(curr_output, last_count, last_character);
+                process_first_output(curr_output, &last_count, &last_character);
             } else if (curr_output->next == NULL) {
-                process_last_output(curr_output, last_count, last_character, chunks, i);
+                process_last_output(curr_output, &last_count, &last_character, chunks, i);
             } else {
                 write_file(curr_output->count, &curr_output->character);
             }
@@ -290,4 +302,5 @@ void process_outputs(Chunk *chunks){
             exit(EXIT_FAILURE);
         }
     }
+    /* fprintf(stderr, "Finished processing outputs\n"); */
 }
