@@ -1,11 +1,6 @@
-# test files
-tests/
+# Tests out
 tests-out/
 
 # compiled executable
-wcat
-wgrep
-wzip
-wunzip
 wish
 pzip
