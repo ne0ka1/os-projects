@@ -32,6 +32,8 @@ int myFreeErrorCode(void *ptr);
 
 void myFree(void *ptr);
 
+void myCleanupMemory();
+
 void memoryMap();
 
 #endif

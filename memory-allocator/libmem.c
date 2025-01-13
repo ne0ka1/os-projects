@@ -189,6 +189,20 @@ void myFree(void *ptr){
 }
 
 /*
+ * myCleanupMemory frees currentPCB and memory pool
+ */
+void myCleanupMemory(){
+    if (currentPCB != NULL) {
+        free(currentPCB);
+        currentPCB = NULL;
+    }
+    if (pool != NULL) {
+        free(pool);
+        pool = NULL;
+    }
+}
+
+/*
  * print out a map of all used and free regions in the 128M byte region
  * of memory.
  */
